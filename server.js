@@ -57,10 +57,23 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
-/** Start the HTTP server ONLY after MongoDB connects successfully. */
+let dbConnectionPromise = null;
+
+const ensureDBConnection = async () => {
+  if (!dbConnectionPromise) {
+    dbConnectionPromise = connectDB().catch((err) => {
+      dbConnectionPromise = null;
+      throw err;
+    });
+  }
+
+  return dbConnectionPromise;
+};
+
+// Local development
 const start = async () => {
   try {
-    await connectDB();
+    await ensureDBConnection();
 
     const server = app.listen(PORT);
     await new Promise((resolve) => server.once("listening", resolve));
@@ -73,10 +86,19 @@ const start = async () => {
   }
 };
 
-// Run only when executed directly (tests import { app } instead)
 if (require.main === module) {
   start();
 }
 
-// Export Express app for Vercel
+// Vercel / serverless
+app.use(async (req, res, next) => {
+  try {
+    await ensureDBConnection();
+    next();
+  } catch (err) {
+    console.error("❌ MongoDB connection failed:", err.message);
+    next(err);
+  }
+});
+
 module.exports = app;
