@@ -78,6 +78,5 @@ if (require.main === module) {
   start();
 }
 
+// Export Express app for Vercel
 module.exports = app;
-module.exports.app = app;
-module.exports.start = start;
