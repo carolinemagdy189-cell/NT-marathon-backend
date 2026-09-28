@@ -12,9 +12,9 @@
     "test:schedule": "node --test tests/schedule.test.js",
     "test:api": "node --test tests/api.test.js"
   },
-  "engines": {
-    "node": ">=18"
-  },
+"engines": {
+  "node": "24.x"
+},
   "keywords": [
     "express",
     "mongodb",
