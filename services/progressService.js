@@ -27,10 +27,6 @@ const computeStatus = (chaptersRead, assignedChapters) => {
   return "partial";
 };
 
-/** Chapters that count toward the official 260-chapter journey for a record. */
-const officialChaptersOf = (record) =>
-  Math.min(record.chaptersRead, record.assignedChapters);
-
 /**
  * Overall user progress from their DailyReading records.
  * @param {Array} records
@@ -38,8 +34,11 @@ const officialChaptersOf = (record) =>
 const calculateUserProgressFromRecords = (records) => {
   const safeRecords = Array.isArray(records) ? records : [];
 
+  // Cumulative progress counts the ACTUAL chapters submitted (chaptersRead),
+  // even when a user reads more than the day's target. The daily target only
+  // determines the day's status, never a cap on cumulative progress.
   const chaptersRead = Math.min(
-    safeRecords.reduce((sum, r) => sum + officialChaptersOf(r), 0),
+    safeRecords.reduce((sum, r) => sum + (r.chaptersRead || 0), 0),
     TOTAL_CHAPTERS // never exceed 260
   );
 
@@ -94,7 +93,7 @@ const calculateBookProgressFromRecords = (records) => {
     const day = schedule[record.dayNumber - 1];
     if (!day) continue;
 
-    let remaining = Math.min(record.chaptersRead, record.assignedChapters);
+    let remaining = record.chaptersRead || 0;
     for (const span of day.spans) {
       if (remaining <= 0) break;
       const spanSize = span.end - span.start + 1;
@@ -118,8 +117,7 @@ const calculateCommunityProgress = async () => {
   const totalUsers = await User.countDocuments({ role: "user" });
 
   const agg = await DailyReading.aggregate([
-    { $project: { capped: { $min: ["$chaptersRead", "$assignedChapters"] } } },
-    { $group: { _id: null, total: { $sum: "$capped" } } },
+    { $group: { _id: null, total: { $sum: "$chaptersRead" } } },
   ]);
 
   const totalChaptersRead = agg.length ? agg[0].total : 0;
@@ -174,8 +172,7 @@ const calculateAdminDailyStats = async (dateKey) => {
 
   // Overall official progress per user (single aggregation)
   const overallAgg = await DailyReading.aggregate([
-    { $project: { userId: 1, capped: { $min: ["$chaptersRead", "$assignedChapters"] } } },
-    { $group: { _id: "$userId", chaptersRead: { $sum: "$capped" } } },
+    { $group: { _id: "$userId", chaptersRead: { $sum: "$chaptersRead" } } },
   ]);
   const overallByUser = new Map(overallAgg.map((row) => [String(row._id), row.chaptersRead]));
 
