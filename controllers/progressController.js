@@ -4,6 +4,8 @@ const marathonDate = require("../utils/marathonDate");
 const {
   calculateUserProgress,
   calculateBookProgress,
+  getUserUniqueChapterCount,
+  calculateCurrentJourney,
 } = require("../services/progressService");
 const { buildSchedule } = require("../services/marathonService");
 
@@ -21,8 +23,12 @@ const getProgress = asyncHandler(async (req, res) => {
  * Per-book New Testament progress (e.g. متى 12/28 = 42.86%).
  */
 const getBookProgress = asyncHandler(async (req, res) => {
-  const books = await calculateBookProgress(req.user._id);
-  sendSuccess(res, 200, { books });
+  const [books, uniqueChapterCount] = await Promise.all([
+    calculateBookProgress(req.user._id),
+    getUserUniqueChapterCount(req.user._id),
+  ]);
+  const currentJourney = calculateCurrentJourney(uniqueChapterCount);
+  sendSuccess(res, 200, { books, currentJourney });
 });
 
 /**

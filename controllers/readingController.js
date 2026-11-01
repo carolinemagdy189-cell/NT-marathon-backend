@@ -3,8 +3,13 @@ const ReadingDay = require("../models/ReadingDay");
 const asyncHandler = require("../utils/asyncHandler");
 const { ApiError, sendSuccess } = require("../utils/apiError");
 const marathonDate = require("../utils/marathonDate");
-const { buildSchedule, getScheduleByDayNumber } = require("../services/marathonService");
+const {
+  buildSchedule,
+  getScheduleByDayNumber,
+  chaptersForReading,
+} = require("../services/marathonService");
 const { computeStatus, calculateUserProgress } = require("../services/progressService");
+const ChapterRead = require("../models/ChapterRead");
 
 const MIN_READ = 1;
 const MAX_READ = 10; // covers the "5+" frontend option (user types the real count)
@@ -81,7 +86,7 @@ const getToday = asyncHandler(async (req, res) => {
 /**
  * POST /api/readings/today
  * Body: { chaptersRead, reflection }
- * - reflection is REQUIRED (non-empty after trim)
+ * - reflection is OPTIONAL (empty/missing is accepted; sharing stays welcome)
  * - future days cannot be submitted
  * - one record per user per day (unique index userId+dayNumber)
  * - "not_registered" is computed, never stored
@@ -95,10 +100,7 @@ const submitToday = asyncHandler(async (req, res) => {
     throw new ApiError(400, `chaptersRead must be an integer between ${MIN_READ} and ${MAX_READ}`);
   }
 
-  // Required reflection
-  if (!reflection) {
-    throw new ApiError(400, "A reflection is required. Please write something about today's reading.");
-  }
+  // Optional reflection: keep the length cap, but an empty string is valid.
   if (reflection.length > 2000) {
     throw new ApiError(400, "Reflection must be at most 2000 characters");
   }
@@ -130,6 +132,11 @@ const submitToday = asyncHandler(async (req, res) => {
   const status = computeStatus(chaptersRead, day.chapters);
   const now = new Date();
 
+  // Exact chapter-level data for this submission (canonical marathon order):
+  // the day's planned chapters, plus any extra chapters continuing into the
+  // following days when the user read more than the day's assignment.
+  const chapters = chaptersForReading(day.dayNumber, chaptersRead);
+
   try {
     const record = await DailyReading.create({
       userId: req.user._id,
@@ -139,9 +146,35 @@ const submitToday = asyncHandler(async (req, res) => {
       chaptersRead,
       status,
       reflection,
+      chapters,
       savedAt: now,
       completedAt: status === "completed" ? now : null,
     });
+
+    // Register every chapter in the per-user chapter registry. Unique index
+    // (userId, book, chapter) silently ignores duplicates, so the same
+    // chapter can never be counted twice.
+    const chapterDocs = [];
+    for (const span of chapters) {
+      for (let ch = span.start; ch <= span.end; ch += 1) {
+        chapterDocs.push({
+          userId: req.user._id,
+          book: span.book,
+          chapter: ch,
+          dayNumber: day.dayNumber,
+          readAt: now,
+        });
+      }
+    }
+    if (chapterDocs.length > 0) {
+      try {
+        await ChapterRead.insertMany(chapterDocs, { ordered: false });
+      } catch (insertErr) {
+        const isDup = (e) =>
+          e && (e.code === 11000 || (e.writeErrors || []).some((w) => w.code === 11000));
+        if (!isDup(insertErr)) throw insertErr;
+      }
+    }
 
     return sendSuccess(res, 201, {
       dayNumber: record.dayNumber,
@@ -149,6 +182,7 @@ const submitToday = asyncHandler(async (req, res) => {
       assignedChapters: record.assignedChapters,
       status: record.status,
       reflection: record.reflection,
+      chapters: record.chapters,
       savedAt: record.savedAt,
       completedAt: record.completedAt,
     });
@@ -207,6 +241,7 @@ const getHistory = asyncHandler(async (req, res) => {
       title: day.title || "",
       assignedChapters: record.assignedChapters,
       chaptersRead: record.chaptersRead,
+      chapters: record.chapters || [],
       status: record.status,
       reflection: record.reflection,
       savedAt: record.savedAt,

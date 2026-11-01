@@ -27,7 +27,28 @@ const dailyReadingSchema = new mongoose.Schema(
       index: true,
     },
 
-    reflection: { type: String, required: true, trim: true, maxlength: 2000 },
+    // OPTIONAL: reflections are welcome but no longer required for a
+    // submission ("" = not shared). Completion depends on chaptersRead only.
+    reflection: { type: String, default: "", trim: true, maxlength: 2000 },
+
+    /**
+     * Exact chapters read, as book spans [{ book, start, end }], derived at
+     * submission time from the canonical schedule (partial days = first N
+     * chapters of the day's plan; overflow continues into following days).
+     * Legacy records default to [] and are backfilled by
+     * scripts/migrateChapterTracking.js.
+     */
+    chapters: {
+      type: [
+        {
+          book: { type: String, required: true },
+          start: { type: Number, required: true, min: 1 },
+          end: { type: Number, required: true, min: 1 },
+        },
+      ],
+      default: [],
+    },
+
     savedAt: { type: Date, required: true }, // first submission time
     completedAt: { type: Date, default: null }, // when it first reached "completed"
   },

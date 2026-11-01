@@ -80,6 +80,47 @@ const buildSchedule = () => {
 const buildTitle = (spans) =>
   spans.map((s) => `${s.book} ${s.start}-${s.end}`).join(" - ");
 
+/**
+ * Canonical chapter-level data for a reading of `count` chapters starting at
+ * `dayNumber`'s planned chapters, continuing into the following days when a
+ * user read more than the day's assignment (canonical marathon order).
+ *
+ * This is the single interpretation rule used for (a) partial days (first N
+ * chapters of that day's plan — the existing documented semantics) and
+ * (b) overflow days (the extra chapters continue in canonical order into the
+ * next days' planned chapters). It never runs past Revelation 22.
+ *
+ * @returns {Array<{book:string,start:number,end:number}>}
+ */
+const chaptersForReading = (dayNumber, count) => {
+  const schedule = buildSchedule();
+  if (!Number.isInteger(dayNumber) || dayNumber < 1 || dayNumber > MARATHON.totalDays) {
+    return [];
+  }
+
+  const spans = [];
+  let remaining = Math.max(Math.floor(count) || 0, 0);
+  let day = dayNumber;
+
+  while (remaining > 0 && day <= 89) {
+    for (const span of schedule[day - 1].spans) {
+      if (remaining <= 0) break;
+      const take = Math.min(remaining, span.end - span.start + 1);
+
+      const last = spans[spans.length - 1];
+      if (last && last.book === span.book && last.end === span.start - 1) {
+        last.end += take; // merge contiguous spans of the same book
+      } else {
+        spans.push({ book: span.book, start: span.start, end: span.start + take - 1 });
+      }
+      remaining -= take;
+    }
+    day += 1;
+  }
+
+  return spans; // may be fewer than `count` only at the very end (chapter 260)
+};
+
 /** In-memory schedule lookup by dayNumber (1..89). Returns null if invalid. */
 const getScheduleByDayNumber = (dayNumber) => {
   const schedule = buildSchedule();
@@ -137,6 +178,7 @@ const syncScheduleToDatabase = async () => {
 module.exports = {
   buildSchedule,
   buildTitle,
+  chaptersForReading,
   getScheduleByDayNumber,
   getTodayReadingDay,
   getReadingDayByNumber,
